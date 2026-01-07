@@ -8,6 +8,7 @@ import soundfile as sf
 import librosa
 from tflite_runtime.interpreter import Interpreter
 from tqdm import tqdm
+from banner import print_banner
 
 TFLITE_DIR = Path('./model_zoo/tflite')
 
@@ -252,6 +253,7 @@ def main():
     )
 
     args = parser.parse_args()
+    print_banner(version="1.0.0")
     noisy_dir = Path(args.noisy_dir)
     enhanced_dir = Path(args.enhanced_dir)
     model_name = args.model_name
