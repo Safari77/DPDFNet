@@ -10,6 +10,7 @@ from torch import nn, Tensor
 from functools import partial
 
 from utils import as_complex, as_real
+from init_norms import InitMagNorm, InitSpecNorm
 
 
 class ResidualConvBlock(nn.Module):
@@ -531,6 +532,95 @@ class SpecNorm(nn.Module):
         else:
             self.s = s
         return x_norm
+
+
+class MagNorm48(nn.Module):
+    def __init__(self, alpha: float, eps: float = 1e-12, stateful: bool = False,
+                 dynamic_var: bool = False):
+        super().__init__()
+        self.alpha = alpha
+        self.eps = eps
+        self.init_vals = InitMagNorm()
+        self.stateful = stateful
+        self.dynamic_var = dynamic_var
+        self.mu = None
+        self.var = None
+
+    def forward(self, x: Tensor) -> Tensor:
+        # x.shape: float32 [B, T, F]
+        assert x.ndim == 3, f"input must have 3 dimensions: [B, T, F], {x.ndim} where found."
+        B, T, num_feat = x.shape
+
+        if self.mu is None or not self.training or not self.stateful:
+            if num_feat == 481:
+                mu = self.init_vals.get_ampirical_mu_0(num_feat)
+            else:
+                mu = self.init_vals.get_heiuristic_mu_0(num_feat)
+            mu = mu[None, :].expand(B, num_feat)
+            var = torch.zeros_like(mu) + 40**2  # the init is like the DFN3 default value
+        else:
+            mu = self.mu
+            var = self.var
+
+        x_norm = []
+        for t in range(x.shape[1]):
+            mu = self.alpha * mu + (1 - self.alpha) * x[:, t]
+            if self.dynamic_var:
+                var = self.alpha * var + (1 - self.alpha) * ((x[:, t] - mu) ** 2)
+            x_norm.append((x[:, t] - mu) / (var.sqrt() + self.eps))
+        x_norm = torch.stack(x_norm, dim=1)
+
+        if self.mu is None or not self.training or not self.stateful:
+            self.mu = None
+            self.var = None
+        else:
+            self.mu = mu
+            self.var = var
+        return x_norm
+
+
+class SpecNorm48(nn.Module):
+    def __init__(self, alpha: float, eps: float = 1e-12, stateful: bool = False):
+        super().__init__()
+        self.alpha = alpha
+        self.eps = eps
+        self.stateful = stateful
+        self.init_vals = InitSpecNorm()
+        self.s = None
+
+    def forward(self, x: Tensor) -> Tensor:
+        # x.shape: float32 [B, T, F, 2]
+        assert not torch.is_complex(x), f"input must be a float32, not complex. use 'as_real()'"
+        assert x.ndim == 4, f"input must have 4 dimensions: [B, T, F, 2], {x.ndim} where found."
+
+        if self.s is None or not self.training or not self.stateful:
+            B, T, num_feat, _ = x.shape
+            if num_feat == 96:
+                s = self.init_vals.get_ampirical_s_0(num_feat)
+            else:
+                s = self.init_vals.get_heiuristic_s_0(num_feat)
+            s = s[None, :].expand(B, num_feat)
+        else:
+            s = self.s
+
+        x_abs = as_complex(x).abs()
+        x_r_norm = []
+        x_i_norm = []
+        # s = torch.mean(x_abs, dim=1)
+        for t in range(x_abs.shape[1]):
+            s = self.alpha * s + (1 - self.alpha) * x_abs[:, t]
+            x_r_norm.append(x[:, t, :, 0] / (s + self.eps).sqrt())
+            x_i_norm.append(x[:, t, :, 1] / (s + self.eps).sqrt())
+        x_r_norm = torch.stack(x_r_norm, dim=1)
+        x_i_norm = torch.stack(x_i_norm, dim=1)
+        x_norm = torch.stack([x_r_norm, x_i_norm], dim=-1)
+
+        if self.s is None or not self.training or not self.stateful:
+            self.s = None
+        else:
+            self.s = s
+        return x_norm
+
 
 
 class Conv2DPointWiseAsLinear(nn.Module):
