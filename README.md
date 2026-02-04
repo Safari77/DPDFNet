@@ -131,9 +131,7 @@ python real_time_demo.py
 
 ### Configure
 Edit constants near the top of `real_time_demo.py`:
-- `MODEL_NAME`: `baseline | dpdfnet2 | dpdfnet4 | dpdfnet8`
-
-> **Note:** The real-time microphone demo supports the **16 kHz** models only.
+- `MODEL_NAME`: `baseline | dpdfnet2 | dpdfnet4 | dpdfnet8 | dpdfnet2_48khz_hr`
 
 ### Usage
 - Speak into your microphone.
