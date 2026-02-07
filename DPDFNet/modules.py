@@ -88,7 +88,6 @@ class DPRNNBlock(nn.Module):
             batch_first=True,
             bidirectional=True,
         )
-        self.intra_states: Optional[torch.Tensor] = None
         self.fc_intra = nn.Linear(hidden_dim * 2, hidden_dim)
         self.ln_intra = nn.LayerNorm(hidden_dim)
 
@@ -116,8 +115,8 @@ class DPRNNBlock(nn.Module):
 
         # Intra-chunk (feature) RNN
         x_intra = einops.rearrange(inputs, 'b c t f -> (b t) f c')  # -> (B*T, F, C)
-        x_intra, self.intra_states = self._execute_rnn(
-            x_intra, self.intra_gru, self.intra_states
+        x_intra, _ = self._execute_rnn(
+            x_intra, self.intra_gru, None
         )
         x_intra = self.ln_intra(self.fc_intra(x_intra))             # -> (B*T, F, hidden_dim)
         x_intra = einops.rearrange(x_intra, '(b t) f c -> b c t f',
