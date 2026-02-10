@@ -5,144 +5,190 @@
 
 [![Project Page](https://img.shields.io/badge/Project-Page-orange)](https://ceva-ip.github.io/DPDFNet/)
 [![arXiv Paper](https://img.shields.io/badge/arXiv-Paper-b31b1b)](https://arxiv.org/abs/2512.16420)
-[![🤗 Hugging Face Models](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Models-yellow)](https://huggingface.co/Ceva-IP/DPDFNet)
-[![🤗 Hugging Face Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset-yellowgreen)](https://huggingface.co/datasets/Ceva-IP/DPDFNet_EvalSet)
+[![Hugging Face Models](https://img.shields.io/badge/Hugging%20Face-Models-yellow)](https://huggingface.co/Ceva-IP/DPDFNet)
+[![Hugging Face Dataset](https://img.shields.io/badge/Hugging%20Face-Dataset-yellowgreen)](https://huggingface.co/datasets/Ceva-IP/DPDFNet_EvalSet)
 
 </div>
 
 <p align="center">
- <sub><em><strong>--- Official implementation for the DPDFNet paper (2025) ---</strong></em></sub>
+ <sub><em><strong>--- Official project for the DPDFNet paper ---</strong></em></sub>
 </p>
 
-## Abstract
-We present DPDFNet, a causal single-channel speech enhancement model that extends the DeepFilterNet2 architecture with dual-path blocks in the encoder, strengthening long-range temporal and cross-band modeling while preserving the original enhancement framework. In addition, we demonstrate that adding a loss component to mitigate over-attenuation in the enhanced speech, combined with a fine-tuning phase tailored for “always-on” applications, leads to substantial improvements in overall model performance. To compare our proposed architecture with a variety of causal open-source models, we created a new evaluation set comprising long, low-SNR recordings in 12 languages across everyday noise scenarios, better reflecting real-world conditions than commonly used benchmarks. On this evaluation set, DPDFNet delivers superior performance to other causal open-source models, including some that are substantially larger and more computationally demanding. We also propose a holistic metric named PRISM, a composite, scale-normalized aggregate of intrusive and non-intrusive metrics, which demonstrates clear scalability with the number of dual-path blocks. We further demonstrate on-device feasibility by deploying DPDFNet on Ceva-NeuPro™-Nano edge NPUs. Results indicate that DPDFNet-4, our second-largest model, achieves real-time performance on NPN32 and runs even faster on NPN64, confirming that state-of-the-art quality can be sustained within strict embedded power and latency constraints.
+## Why DPDFNet
 
----
+- Better long-context modeling than DeepFilterNet2 via dual-path blocks in the encoder.
+- Multiple quality/speed variants (baseline, DPDFNet-2/4/8, plus 48 kHz high-resolution model).
+- Practical deployment paths included in this repo: TFLite, ONNX, offline batch enhancement, and real-time microphone demo.
 
-## Repository Overview
+## Try In 60 Seconds
 
-This repo includes:
-- **Offline enhancement** for a folder of WAV files (`enhance.py`)
-- A **real-time microphone demo** with live spectrograms and A/B playback (`real_time_demo.py`)
-- Pre-exported **TFLite models** expected under: `model_zoo/tflite/*.tflite`
+### 1) Install dependencies
 
-### TFLite models
-
-Place the `.tflite` files under:
-```
-model_zoo/tflite/
-```
-
-Use model names **without** the `.tflite` suffix in scripts (e.g., `dpdfnet4`, not `dpdfnet4.tflite`).
-
-Supported model files:
-
-#### 16 kHz models
-
-| Model           | Params [M] | MACs [G] | TFLite Size [MB] | Intended Use                    |
-| --------------- | :--------: | :------: | :--------------: | ------------------------------- |
-| baseline.tflite |    2.31    |   0.36   |        8.5       | Fastest / lowest resource usage |
-| dpdfnet2.tflite |    2.49    |   1.35   |       10.7       | Real-time / embedded devices    |
-| dpdfnet4.tflite |    2.84    |   2.36   |       12.9       | Balanced performance            |
-| dpdfnet8.tflite |    3.54    |   4.37   |       17.2       | Best enhancement quality        |
-
-#### 48 kHz model
-
-| Model                    | Params [M] | MACs [G] | TFLite Size [MB] | Intended Use                 |
-| ------------------------ | :--------: | :------: | :--------------: | ---------------------------- |
-| dpdfnet2_48khz_hr.tflite |    2.58    |   2.42   |       11.6       | High-resolution 48 kHz audio |
-
-### Download models
-
-Models are available on Hugging Face: https://huggingface.co/Ceva-IP/DPDFNet
-
-Example download into the expected folder:
-```bash
-pip install -U "huggingface_hub[cli]"
-mkdir -p model_zoo/tflite
-
-# 16 kHz models
-huggingface-cli download Ceva-IP/DPDFNet \
-  baseline.tflite dpdfnet2.tflite dpdfnet4.tflite dpdfnet8.tflite \
-  --local-dir model_zoo/tflite \
-  --local-dir-use-symlinks False
-
-# 48 kHz model
-huggingface-cli download Ceva-IP/DPDFNet \
-  dpdfnet2_48khz_hr.tflite \
-  --local-dir model_zoo/tflite \
-  --local-dir-use-symlinks False
-```
-
----
-
-## Quick start
-
-### Install (full: offline + real-time demo)
 ```bash
 python -m venv .venv
-source .venv/bin/activate # Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Install (lightweight: offline enhancement only)
-If you only need `enhance.py` and want to avoid heavy GUI/audio/demo dependencies:
-```bash
-pip install numpy scipy librosa soundfile tqdm tflite-runtime
-```
+### 2) Run offline enhancement
 
-Both scripts look for models under `./model_zoo/tflite` by default.
+Put one or more `*.wav` files in `./noisy_wavs`, then choose one:
 
----
-
-## Offline Enhancement
-
-Enhance all `*.wav` files in a folder (**non-recursive**) and write enhanced WAVs to an output folder:
+`Option A: TFLite` using [enhance.py](enhance.py)
 
 ```bash
-python enhance.py --noisy_dir /path/to/noisy_wavs --enhanced_dir /path/to/output --model_name dpdfnet8
+python -m enhance --noisy_dir ./noisy_wavs --enhanced_dir ./enhanced_wavs --model_name dpdfnet4
 ```
 
-What the script does:
-- Loads audio (any sample rate), converts to **mono**, and resamples to the model's expected sample rate.
-  - **16 kHz models:** `baseline`, `dpdfnet2`, `dpdfnet4`, `dpdfnet8`
-  - **48 kHz model:** `dpdfnet2_48khz_hr`
-- When using `dpdfnet2_48khz_hr`, the script automatically switches to a **48 kHz** processing pipeline.
-- Runs the model **frame-by-frame in streaming mode**.
-- Resamples back to the original sample rate, and saves **mono PCM_16 WAV** outputs.
+`Option B: ONNX` using [infer_dpdfnet_onnx.py](streaming/infer_dpdfnet_onnx.py)
 
-Output filenames are created as:
+```bash
+python -m streaming.infer_dpdfnet_onnx \
+  --onnx model_zoo/onnx/dpdfnet4.onnx \
+  --noisy_dir ./noisy_wavs \
+  --enhanced_dir ./enhanced_wavs_onnx \
+  --providers CPUExecutionProvider
 ```
+
+Enhanced files are written as:
+
+```text
 <original_stem>_<model_name>.wav
 ```
 
----
+> Notes:
+> Model files are not bundled in this repository.\
+> Download PyTorch checkpoints, TFLite, and ONNX models from Hugging Face:
+>
+> ```bash
+> pip install -U "huggingface_hub[cli]"
+> mkdir -p model_zoo/checkpoints model_zoo/tflite model_zoo/onnx
+>
+> huggingface-cli download Ceva-IP/DPDFNet \
+>   baseline.pth dpdfnet2.pth dpdfnet4.pth dpdfnet8.pth dpdfnet2_48khz_hr.pth \
+>   --local-dir model_zoo/checkpoints --local-dir-use-symlinks False
+>
+> huggingface-cli download Ceva-IP/DPDFNet \
+>   baseline.tflite dpdfnet2.tflite dpdfnet4.tflite dpdfnet8.tflite dpdfnet2_48khz_hr.tflite \
+>   --local-dir model_zoo/tflite --local-dir-use-symlinks False
+>
+> huggingface-cli download Ceva-IP/DPDFNet \
+>   baseline.onnx dpdfnet2.onnx dpdfnet4.onnx dpdfnet8.onnx dpdfnet2_48khz_hr.onnx \
+>   --local-dir model_zoo/onnx --local-dir-use-symlinks False
+> ```
 
-## Real-Time Microphone Demo
+## Audio Samples And Demo
 
-![Real-time DPDFNet demo screen shot](figures/live_demo.png "Real-time DPDFNet demo screen shot")
+- Project page with examples: https://ceva-ip.github.io/DPDFNet/
+- Hugging Face model hub: https://huggingface.co/Ceva-IP/DPDFNet
+- Evaluation dataset used in the paper: https://huggingface.co/datasets/Ceva-IP/DPDFNet_EvalSet
 
-The real-time demo performs streaming enhancement on microphone input, displays **Noisy vs Enhanced** live spectrograms, and lets you switch playback between the two.
+## Real-Time Demo (Microphone)
 
-### Run
+![Real-time DPDFNet demo screenshot](figures/live_demo.png)
+
+Run:
+
 ```bash
-python real_time_demo.py
+python -m real_time_demo
 ```
 
-### Configure
-Edit constants near the top of `real_time_demo.py`:
-- `MODEL_NAME`: `baseline | dpdfnet2 | dpdfnet4 | dpdfnet8 | dpdfnet2_48khz_hr`
+How it works:
+- Captures microphone audio in streaming hops.
+- Enhances each hop frame-by-frame with TFLite.
+- Displays live noisy vs enhanced spectrograms.
+- Lets you switch playback between raw and enhanced streams.
 
-### Usage
-- Speak into your microphone.
-- Use the UI buttons to switch playback:
- - **Noisy**: plays raw mic input
- - **Enhanced**: plays model output
-- The console prints **ms per frame** to help assess real-time performance.
+To change model, edit `MODEL_NAME` near the top of `real_time_demo.py`.
 
----
+## Benchmarks And Model Profile
 
-## Metrics & Evaluation
+### Model profile
+
+#### 16 kHz models
+
+| Model | Params [M] | MACs [G] | TFLite Size [MB] | ONNX Size [MB] | Intended Use |
+| --- | :---: | :---: | :---: | :---: | --- |
+| baseline | 2.31 | 0.36 | 8.5 | 8.5 | Fastest / lowest resource usage |
+| dpdfnet2 | 2.49 | 1.35 | 10.7 | 9.9 | Real-time / embedded devices |
+| dpdfnet4 | 2.84 | 2.36 | 12.9 | 11.2 | Balanced performance |
+| dpdfnet8 | 3.54 | 4.37 | 17.2 | 14.1 | Best enhancement quality |
+
+#### 48 kHz model
+
+| Model | Params [M] | MACs [G] | TFLite Size [MB] | ONNX Size [MB] | Intended Use |
+| --- | :---: | :---: | :---: | :---: | --- |
+| dpdfnet2_48khz_hr | 2.58 | 2.42 | 11.6 | 10.3 | High-resolution 48 kHz audio |
+
+## ONNX Models
+
+### Run ONNX inference (folder of WAV files)
+
+```bash
+python -m streaming.infer_dpdfnet_onnx \
+  --onnx model_zoo/onnx/dpdfnet4.onnx \
+  --noisy_dir ./noisy_wavs \
+  --enhanced_dir ./enhanced_onnx \
+  --providers CPUExecutionProvider
+```
+
+The script prints per-file:
+- total inference time
+- average frame time (ms)
+- real-time factor (RTF)
+
+### Export ONNX models from PyTorch checkpoints
+
+For 16 kHz family:
+
+```bash
+python -m streaming.export_dpdfnet_to_onnx
+```
+
+For 48 kHz high-resolution model:
+
+```bash
+python -m streaming.export_dpdfnet_48khz_hr_to_onnx
+```
+
+## Troubleshooting / FAQ
+
+`Q: Model files are missing (TFLite / ONNX / checkpoints)`
+- Run the Hugging Face download commands from the `Try In 60 Seconds` notes block.
+- Confirm files are in:
+  - `model_zoo/tflite/`
+  - `model_zoo/onnx/`
+  - `model_zoo/checkpoints/`
+
+`Q: No .wav files found`
+- Both offline scripts scan only the exact folder given by `--noisy_dir` (non-recursive).
+- Ensure input files use `.wav` extension.
+
+`Q: Which command should I use for offline enhancement?`
+- TFLite path: `python -m enhance --noisy_dir ... --enhanced_dir ... --model_name ...`
+- ONNX path: `python -m streaming.infer_dpdfnet_onnx --onnx ... --noisy_dir ... --enhanced_dir ...`
+
+`Q: Real-time demo has audio device errors`
+- Check microphone permissions and default input/output device settings.
+- Install host audio dependencies for `sounddevice` (PortAudio packages on your OS).
+
+`Q: Real-time GUI does not open`
+- Ensure Qt dependencies from `requirements.txt` installed successfully.
+- On headless servers, run offline enhancement instead.
+
+`Q: ONNX inference fails with provider errors`
+- Start with `--providers CPUExecutionProvider`.
+- If using GPU providers, verify your ONNX Runtime build and driver stack support them.
+
+`Q: I get import/module errors when running commands`
+- Run from repo root and use module form exactly as documented (`python -m ...`).
+- Activate your virtual environment before running commands.
+
+`Q: CPU is too slow for my target`
+- Try smaller models (`baseline`, `dpdfnet2`).
+- Benchmark ONNX runtime using `python -m streaming.infer_dpdfnet_onnx ...` and compare RTF.
+
+## Evaluation Metrics
 
 To compute *intrusive* and *non-intrusive* metrics on our [DPDFNet EvalSet](https://huggingface.co/datasets/Ceva-IP/DPDFNet_EvalSet), we use the tools listed below. For aggregate quality reporting, we rely on PRISM, the scale‑normalized composite metric introduced in the DPDFNet paper.
 
@@ -153,8 +199,8 @@ We provide a dedicated script, `pesq_stoi_sisnr_calc.py`, which computes **PESQ*
 - **DNSMOS (P.835 & P.808)** - We use the **official** DNSMOS local inference script from the DNS Challenge repository: [`dnsmos_local.py`](https://github.com/microsoft/DNS-Challenge/blob/master/DNSMOS/dnsmos_local.py). Please follow their installation and model download instructions in that project before running. 
 - **NISQA v2** - We use the **official** NISQA project: <https://github.com/gabrielmittag/NISQA>. Refer to their README for environment setup, pretrained model weights, and inference commands (*e.g.*, running `nisqa_predict.py` on a folder of WAVs).
 
+
 ## Citation
-If you use this work, please cite the paper:
 
 ```bibtex
 @article{rika2025dpdfnet,
