@@ -6,7 +6,6 @@ onnx>=1.17.0
 onnxruntime>=1.20.0
 scipy==1.15.3
 soundfile==0.13.1
-tflite-runtime==2.14.0
 torch==2.7.1
 tqdm==4.67.1
 sounddevice>=0.4.6
