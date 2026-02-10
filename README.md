@@ -62,19 +62,27 @@ Enhanced files are written as:
 >
 > ```bash
 > pip install -U "huggingface_hub[cli]"
-> mkdir -p model_zoo/checkpoints model_zoo/tflite model_zoo/onnx
->
-> huggingface-cli download Ceva-IP/DPDFNet \
->   baseline.pth dpdfnet2.pth dpdfnet4.pth dpdfnet8.pth dpdfnet2_48khz_hr.pth \
->   --local-dir model_zoo/checkpoints --local-dir-use-symlinks False
->
-> huggingface-cli download Ceva-IP/DPDFNet \
->   baseline.tflite dpdfnet2.tflite dpdfnet4.tflite dpdfnet8.tflite dpdfnet2_48khz_hr.tflite \
->   --local-dir model_zoo/tflite --local-dir-use-symlinks False
->
-> huggingface-cli download Ceva-IP/DPDFNet \
->   baseline.onnx dpdfnet2.onnx dpdfnet4.onnx dpdfnet8.onnx dpdfnet2_48khz_hr.onnx \
->   --local-dir model_zoo/onnx --local-dir-use-symlinks False
+> 
+> # create target dirs
+> mkdir -p model_zoo/{checkpoints,onnx,tflite}
+> 
+> # PyTorch checkpoints (HF path: checkpoints/* -> local: model_zoo/checkpoints/*)
+> hf download Ceva-IP/DPDFNet \
+>   --include "checkpoints/*.pth" \
+>   --local-dir model_zoo \
+>   --local-dir-use-symlinks False
+> 
+> # ONNX models (HF path: onnx/* -> local: model_zoo/onnx/*)
+> hf download Ceva-IP/DPDFNet \
+>   --include "onnx/*.onnx" \
+>   --local-dir model_zoo \
+>   --local-dir-use-symlinks False
+> 
+> # TFLite models (HF path: *.tflite at repo root -> local: model_zoo/tflite/*)
+> hf download Ceva-IP/DPDFNet \
+>   --include "*.tflite" \
+>   --local-dir model_zoo/tflite \
+>   --local-dir-use-symlinks False
 > ```
 
 ## Audio Samples And Demo
