@@ -6,12 +6,24 @@ import sys
 import numpy as np
 import soundfile as sf
 import librosa
-import tensorflow as tf
-from tqdm import tqdm
-from banner import print_banner
 
-TFLITE_DIR = Path('./model_zoo/tflite')
-Interpreter = tf.lite.Interpreter
+# -----------------------------------------------------------------------------
+# Dependency Check: TFLite Runtime or TensorFlow
+# -----------------------------------------------------------------------------
+try:
+    from tflite_runtime.interpreter import Interpreter
+except ImportError:
+    try:
+        import tensorflow.lite as tflite
+        Interpreter = tflite.Interpreter
+    except ImportError:
+        print("Error: neither 'tflite' nor 'tensorflow' is installed.")
+        print("Install via: pip install tflite (or pip install tensorflow)")
+        sys.exit(1)
+
+from tqdm import tqdm
+
+TFLITE_DIR = Path('./model_zoo')
 
 # -----------------------------------------------------------------------------
 # Model registry
@@ -64,7 +76,7 @@ def make_stft_config(sr: int, win_len: int) -> STFTConfig:
 # -----------------------------------------------------------------------------
 
 def preprocessing(waveform: np.ndarray, cfg: STFTConfig) -> np.ndarray:
-    """ 
+    """
     waveform: 1D float32 numpy array at cfg.sr, mono, range ~[-1,1]
     Returns complex STFT as real/imag split: [B=1, T, F, 2] float32
     """
@@ -84,7 +96,7 @@ def preprocessing(waveform: np.ndarray, cfg: STFTConfig) -> np.ndarray:
 
 
 def postprocessing(spec_e: np.ndarray, cfg: STFTConfig) -> np.ndarray:
-    """ 
+    """
     spec_e: [1, T, F, 2] float32
     Returns waveform (1D float32, cfg.sr)
     """
@@ -235,17 +247,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="Enhance WAV files with a DPDFNet TFLite model (streaming)."
     )
+    # MODIFIED: Accepts list of files instead of directories
     parser.add_argument(
-        "--noisy_dir",
-        type=str,
-        required=True,
-        help="Folder with noisy *.wav files (non-recursive).",
-    )
-    parser.add_argument(
-        "--enhanced_dir",
-        type=str,
-        required=True,
-        help="Output folder for enhanced WAVs.",
+        "input_files",
+        nargs="+",
+        type=Path,
+        help="One or more noisy *.wav files to enhance.",
     )
     parser.add_argument(
         "--model_name",
@@ -259,39 +266,38 @@ def main():
     )
 
     args = parser.parse_args()
-    print_banner(version=None)
-    noisy_dir = Path(args.noisy_dir)
-    enhanced_dir = Path(args.enhanced_dir)
     model_name = args.model_name
+    input_files = args.input_files
 
-    if not noisy_dir.is_dir():
-        print(
-            f"ERROR: --noisy_dir does not exist or is not a directory: {noisy_dir}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    wavs = sorted(p for p in noisy_dir.glob("*.wav") if p.is_file())
-    if not wavs:
-        print(f"No .wav files found in {noisy_dir} (non-recursive).")
+    # Check for empty input (argparse usually handles this with nargs='+', but good to be safe)
+    if not input_files:
+        print("No input files provided.")
         sys.exit(0)
 
     cfg = MODEL_CONFIG.get(model_name, None)
     print(f"Model: {model_name}")
     if cfg is not None:
         print(f"Model SR: {cfg['sr']} Hz | win_len: {cfg['win_len']} | hop: {cfg['win_len']//2}")
-    print(f"Input : {noisy_dir}")
-    print(f"Output: {enhanced_dir}")
-    print(f"Found {len(wavs)} file(s). Enhancing...\n")
 
-    for wav in wavs:
-        out_path = enhanced_dir / (wav.stem + f"_{model_name}.wav")
+    print(f"Input files: {len(input_files)}")
+    print(f"Processing...\n")
+
+    for wav in input_files:
+        if not wav.exists():
+            print(f"ERROR: File not found: {wav}", file=sys.stderr)
+            continue
+
+        # MODIFIED: Construct output filename -> filename_enhanced_modelname.wav
+        new_stem = f"{wav.stem}_enhanced_{model_name}"
+        out_path = wav.with_name(new_stem + ".wav")
+
         try:
             enhance_file(wav, out_path, model_name)
+            print(f"Saved: {out_path}")
         except Exception as e:
             print(f"[SKIP] {wav.name} due to error: {e}", file=sys.stderr)
 
-    print("\nProcessing complete. Outputs saved in:", enhanced_dir)
+    print("\nProcessing complete.")
 
 
 if __name__ == "__main__":
