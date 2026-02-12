@@ -7,6 +7,8 @@
 [![arXiv Paper](https://img.shields.io/badge/arXiv-Paper-b31b1b)](https://arxiv.org/abs/2512.16420)
 [![Hugging Face Models](https://img.shields.io/badge/Hugging%20Face-Models-yellow)](https://huggingface.co/Ceva-IP/DPDFNet)
 [![Hugging Face Dataset](https://img.shields.io/badge/Hugging%20Face-Dataset-yellowgreen)](https://huggingface.co/datasets/Ceva-IP/DPDFNet_EvalSet)
+[![Hugging Face Space](https://img.shields.io/badge/Hugging%20Face-Space-blue)](https://huggingface.co/spaces/Ceva-IP/DPDFNetDemo)
+
 
 </div>
 
