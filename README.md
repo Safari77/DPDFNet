@@ -1,4 +1,5 @@
 
+
 <h1 align="center">DPDFNet: Boosting DeepFilterNet2 via Dual-Path RNN</h1>
 <br></br>
 
@@ -21,13 +22,54 @@
   <img src="figures/dpdfnet2_48khz_hr_gif.gif" width="688" alt="Noisy→Enhanced spectrogram slideshow" />
 </p>
 
-## Why DPDFNet
+## Install the PyPI Package
 
-- Better long-context modeling than DeepFilterNet2 via dual-path blocks in the encoder.
-- Multiple quality/speed variants (baseline, DPDFNet-2/4/8, plus 48 kHz high-resolution model).
-- Practical deployment paths included in this repo: TFLite, ONNX, offline batch enhancement, and real-time microphone demo.
+For CPU-only ONNX inference using the packaged CLI and Python API:
 
-## Try In 60 Seconds
+```bash
+pip install dpdfnet
+```
+
+### CLI Example
+
+```bash
+# Enhance one file
+dpdfnet enhance noisy.wav enhanced.wav --model dpdfnet4
+
+# Enhance a directory
+dpdfnet enhance-dir ./noisy_wavs ./enhanced_wavs --model dpdfnet2
+
+# Download models
+dpdfnet download
+dpdfnet download dpdfnet8
+dpdfnet download dpdfnet4 --force
+```
+
+### Python API Example
+
+```python
+import soundfile as sf
+import dpdfnet
+
+# In-memory enhancement:
+audio, sr = sf.read("noisy.wav")
+enhanced = dpdfnet.enhance(audio, sample_rate=sr, model="dpdfnet4")
+sf.write("enhanced.wav", enhanced, sr)
+
+# Enhance one file:
+out_path = dpdfnet.enhance_file("noisy.wav", model="dpdfnet2")
+print(out_path)
+
+# Model listing:
+for row in dpdfnet.available_models():
+    print(row["name"], row["ready"], row["cached"])
+
+# Download models:
+dpdfnet.download()				# All models
+dpdfnet.download("dpdfnet4")	# Specific model
+```
+
+## Run From Source
 
 ### 1) Install dependencies
 
@@ -143,7 +185,7 @@ To change model, edit `MODEL_NAME` near the top of `real_time_demo.py`.
 ## Troubleshooting / FAQ
 
 #### `Q: Model files are missing (TFLite / ONNX / checkpoints)`
-- Run the Hugging Face download commands from the `Try In 60 Seconds` notes block.
+- Run the Hugging Face download commands from the `Run From Source` section.
 - Confirm files are in:
   - `model_zoo/tflite/`
   - `model_zoo/onnx/`
