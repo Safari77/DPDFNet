@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Machine learning / model files
+*.onnx
+*.tflite
+*.npz
+*.pth
+*.pt
+*.ckpt
+
+# TensorFlow checkpoints
+checkpoint
+*.ckpt.*
+
+# TorchScript
+*.torchscript
+
+# Other common ML cache artifacts
+*.npy
+*.pb
+*.h5
+
+# IDE / editor junk (optional but recommended)
+.vscode/
+.idea/
+*.swp
+
+# pypi
+package/CHANGELOG.md
+package/CONTRIBUTING.md
+*.whl
+*.gz
+dpdfnet.egg-info/
