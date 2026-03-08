@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from streaming.dpdfnet import DPDFNet, correct_state_dict
+from .dpdfnet import DPDFNet, correct_state_dict
 
 
 class DPDFNetOnnxWrapper(nn.Module):

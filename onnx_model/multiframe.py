@@ -3,7 +3,7 @@ from typing import Final, List, Optional, Tuple, Union
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
-from streaming.layers import CyclicBuffer
+from .layers import CyclicBuffer
 
 
 def as_windowed(x: Tensor, window_length: int, step: int = 1, dim: int = 1) -> Tensor:

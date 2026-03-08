@@ -7,8 +7,8 @@ from typing import Optional, Final, Callable, Tuple, Union, Iterable, List
 from torch import Tensor
 
 from model.utils import as_complex
-from streaming.init_norms import InitMagNorm, InitSpecNorm
-from streaming.utils import get_mag
+from .init_norms import InitMagNorm, InitSpecNorm
+from .utils import get_mag
 
 
 class CyclicBuffer(nn.Module):

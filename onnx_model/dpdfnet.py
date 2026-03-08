@@ -5,12 +5,12 @@ from torch.nn import Module
 from functools import partial
 from typing import List, Optional, Tuple
 
-from streaming.layers import Stft, Istft, ErbNorm, \
+from .layers import Stft, Istft, ErbNorm, \
     GroupedLinearEinsum, GroupedLinear, SqueezedGRU_S, Conv2dNormAct, \
     ConvTranspose2dNormAct, Mask, SpecNorm, SubPixelConv2dNormAct, DPRNN, CyclicBuffer
 from model.utils import as_real, to_db, get_wnorm, vorbis_window, erb_filter_banks
-from streaming.utils import get_pow
-from streaming import multiframe as MF
+from .utils import get_pow
+from . import multiframe as MF
 
 PI = 3.1415926535897932384626433
 

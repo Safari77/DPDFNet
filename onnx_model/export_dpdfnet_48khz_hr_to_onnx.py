@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from streaming.dpdfnet_48khz_hr import DPDFNet48HR, correct_state_dict
+from .dpdfnet_48khz_hr import DPDFNet48HR, correct_state_dict
 
 
 class DPDFNet48HROnnxWrapper(nn.Module):
