@@ -33,5 +33,9 @@ checkpoint
 package/CHANGELOG.md
 package/CONTRIBUTING.md
 *.whl
+*.cfg
 *.gz
 dpdfnet.egg-info/
+
+# Model Zoo
+model_zoo/
