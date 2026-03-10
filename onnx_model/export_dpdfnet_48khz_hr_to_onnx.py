@@ -1,7 +1,9 @@
 import argparse
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+import onnx
 import torch
 from torch import nn
 
@@ -20,6 +22,50 @@ class DPDFNet48HROnnxWrapper(nn.Module):
         spec_e, state_out = self.model(spec, state_in)
         spec_e = spec_e * self.inv_wnorm
         return spec_e, state_out
+
+
+def add_meta_data(filename: Path, meta_data: dict[str, Any]) -> None:
+    model = onnx.load(str(filename))
+    while len(model.metadata_props):
+        model.metadata_props.pop()
+
+    for key, value in meta_data.items():
+        meta = model.metadata_props.add()
+        meta.key = key
+        meta.value = str(value)
+
+    onnx.save(model, str(filename))
+
+
+def serialize_float_list(values: np.ndarray) -> str:
+    return ",".join(format(float(v), ".9g") for v in values.reshape(-1))
+
+
+def build_meta_data(model: DPDFNet48HR) -> dict[str, Any]:
+    erb_norm_init = model.erb_norm.initial_state(dtype=torch.float32).cpu().numpy()
+    spec_norm_init = model.spec_norm.initial_state(dtype=torch.float32).cpu().numpy()
+
+    return {
+        "model_type": "dpdfnet",
+        "version": 1,
+        "profile": "dpdfnet2_48khz_hr",
+        "sample_rate": 48000,
+        "n_fft": model.stft.n_fft,
+        "hop_length": model.stft.hop,
+        "window_length": model.stft.win_len,
+        "window_type": "vorbis",
+        "normalized": 0,
+        "center": 1,
+        "pad_mode": "reflect",
+        "freq_bins": model.freq_bins,
+        "erb_bins": model.erb_bins,
+        "spec_bins": model.nb_df,
+        "state_size": model.state_size(),
+        "erb_norm_state_size": model.erb_norm.state_size(),
+        "spec_norm_state_size": model.spec_norm.state_size(),
+        "erb_norm_init": serialize_float_list(erb_norm_init),
+        "spec_norm_init": serialize_float_list(spec_norm_init),
+    }
 
 
 def build_model(args: argparse.Namespace) -> DPDFNet48HR:
@@ -126,6 +172,7 @@ def main() -> None:
 
     model = build_model(args)
     export_onnx(model, output, opset=args.opset, use_dynamic_axes=args.dynamic_axes)
+    add_meta_data(output, build_meta_data(model))
     state_shape = export_initial_state(model, state_output)
     print(f"[OK] Exported ONNX model to: {output}")
     print(f"[OK] Exported initial state to: {state_output}")
