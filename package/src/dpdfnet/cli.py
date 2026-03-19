@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from importlib import metadata
+import os
 from pathlib import Path
 import sys
+import threading
 from typing import Callable, List, Optional
 
 from tqdm import tqdm
@@ -88,6 +91,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Input directory containing audio files (.wav, .flac, .mp3, .ogg, …).",
     )
     p_enhance_dir.add_argument("output_dir", type=Path, help="Output directory.")
+    p_enhance_dir.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Number of parallel workers (default: CPU count).",
+    )
     _add_model_resolution_args(p_enhance_dir)
 
     p_download = subparsers.add_parser(
@@ -168,7 +178,9 @@ def _run_enhance(args: argparse.Namespace) -> int:
 
 
 def _run_enhance_dir(args: argparse.Namespace) -> int:
-    from .api import enhance_file, SUPPORTED_EXTENSIONS
+    from .api import SUPPORTED_EXTENSIONS, _enhance_file_with_runtime
+    from .models import resolve_model
+    from .onnx_backend import build_runtime_model
 
     input_dir = Path(args.input_dir).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
@@ -186,7 +198,13 @@ def _run_enhance_dir(args: argparse.Namespace) -> int:
             f"Supported extensions: {supported}"
         )
 
+    resolved = resolve_model(model=args.model, auto_download=True, verbose=args.verbose)
+    runtime = build_runtime_model(resolved.onnx_path)
+    n_workers = args.workers or (os.cpu_count() or 1)
+
     output_dir.mkdir(parents=True, exist_ok=True)
+    _total_lock = threading.Lock()
+
     with tqdm(
         total=len(audio_files),
         unit="file",
@@ -201,15 +219,16 @@ def _run_enhance_dir(args: argparse.Namespace) -> int:
             dynamic_ncols=True,
             file=sys.stderr,
         ) as frames_progress:
-            for wav_path in audio_files:
-                out_path = output_dir / f"{wav_path.stem}_enhanced.wav"
+
+            def _make_callback(wav_path: Path):
                 last_done = 0
 
                 def _callback(done: int, total: int) -> None:
                     nonlocal last_done
                     if done == 0:
-                        frames_progress.total = (frames_progress.total or 0) + total
-                        frames_progress.refresh()
+                        with _total_lock:
+                            frames_progress.total = (frames_progress.total or 0) + total
+                            frames_progress.refresh()
                         last_done = 0
                         return
                     delta = max(0, done - last_done)
@@ -217,15 +236,36 @@ def _run_enhance_dir(args: argparse.Namespace) -> int:
                         frames_progress.update(delta)
                     last_done = done
 
-                enhance_file(
+                return _callback
+
+            def _process(wav_path: Path) -> Path:
+                out_path = output_dir / f"{wav_path.stem}_enhanced.wav"
+                return _enhance_file_with_runtime(
                     input_path=wav_path,
                     output_path=out_path,
-                    model=args.model,
-                    verbose=args.verbose,
-                    progress_callback=_callback,
+                    runtime=runtime,
+                    model_sample_rate=resolved.info.sample_rate,
+                    progress_callback=_make_callback(wav_path),
                 )
-                files_progress.update(1)
-                files_progress.set_postfix_str(wav_path.name)
+
+            future_to_path = {}
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                for wav_path in audio_files:
+                    future_to_path[pool.submit(_process, wav_path)] = wav_path
+
+                errors = []
+                for future in as_completed(future_to_path):
+                    wav_path = future_to_path[future]
+                    exc = future.exception()
+                    if exc is not None:
+                        errors.append((wav_path, exc))
+                    files_progress.update(1)
+                    files_progress.set_postfix_str(wav_path.name)
+
+            if errors:
+                msgs = "\n".join(f"  {p}: {e}" for p, e in errors)
+                raise RuntimeError(f"Errors during processing:\n{msgs}")
+
     return 0
 
 

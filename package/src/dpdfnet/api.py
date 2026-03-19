@@ -110,6 +110,91 @@ def enhance(
     return fit_length(enhanced, waveform.shape[0]).astype(np.float32, copy=False)
 
 
+def _enhance_with_runtime(
+    audio: np.ndarray,
+    sample_rate: int,
+    *,
+    runtime,
+    model_sample_rate: int,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> np.ndarray:
+    """Like `enhance()` but skips model resolution/loading; uses a pre-built RuntimeModel."""
+    from .audio import (
+        ensure_sample_rate,
+        fit_length,
+        make_stft_config,
+        postprocess_spec,
+        preprocess_waveform,
+        to_mono,
+    )
+    from .onnx_backend import infer_win_len
+
+    waveform = to_mono(np.asarray(audio, dtype=np.float32))
+    sr_in = int(sample_rate)
+
+    waveform_model_sr = ensure_sample_rate(waveform, sr_in, model_sample_rate)
+    win_len = infer_win_len(runtime.session, model_sample_rate)
+    cfg = make_stft_config(win_len)
+
+    waveform_padded = np.pad(waveform_model_sr, (0, cfg.win_len), mode="constant")
+    spec_r = preprocess_waveform(waveform_padded, cfg)
+
+    state = runtime.init_state.copy()
+    frames: list[np.ndarray] = []
+    total_frames = int(spec_r.shape[1])
+    if progress_callback is not None:
+        progress_callback(0, total_frames)
+    for t in range(total_frames):
+        spec_t = np.ascontiguousarray(spec_r[:, t : t + 1, :, :], dtype=np.float32)
+        spec_e_t, state = runtime.session.run(
+            [runtime.out_spec_name, runtime.out_state_name],
+            {runtime.in_spec_name: spec_t, runtime.in_state_name: state},
+        )
+        frames.append(np.ascontiguousarray(spec_e_t, dtype=np.float32))
+        if progress_callback is not None:
+            progress_callback(t + 1, total_frames)
+
+    if not frames:
+        return waveform.copy()
+
+    spec_e = np.concatenate(frames, axis=1)
+    enhanced_model_sr = postprocess_spec(spec_e, cfg)
+    enhanced = ensure_sample_rate(enhanced_model_sr, model_sample_rate, sr_in)
+    return fit_length(enhanced, waveform.shape[0]).astype(np.float32, copy=False)
+
+
+def _enhance_file_with_runtime(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path],
+    *,
+    runtime,
+    model_sample_rate: int,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> Path:
+    """Like `enhance_file()` but uses a pre-built RuntimeModel to skip model loading."""
+    import soundfile as sf
+
+    from .audio import pcm16_safe
+
+    in_path = Path(input_path).expanduser().resolve()
+    if not in_path.is_file():
+        raise FileNotFoundError(f"Input file not found: {in_path}")
+
+    audio, sr = _read_audio(in_path)
+    enhanced = _enhance_with_runtime(
+        audio=audio,
+        sample_rate=int(sr),
+        runtime=runtime,
+        model_sample_rate=model_sample_rate,
+        progress_callback=progress_callback,
+    )
+
+    out_path = Path(output_path).expanduser().resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(out_path), pcm16_safe(enhanced), int(sr), subtype="PCM_16")
+    return out_path
+
+
 # Extensions handled natively by soundfile (libsndfile)
 _SF_EXTENSIONS: frozenset[str] = frozenset({".wav", ".flac", ".ogg", ".aiff", ".aif", ".au", ".snd"})
 # Extensions that require pydub + ffmpeg

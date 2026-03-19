@@ -71,8 +71,9 @@ Commands:
 2. `dpdfnet enhance <input> <output.wav> [--model <name>] [-v|--verbose]`
 - Enhance one audio file (any supported format; output is always `.wav`).
 
-3. `dpdfnet enhance-dir <input_dir> <output_dir> [--model <name>] [-v|--verbose]`
+3. `dpdfnet enhance-dir <input_dir> <output_dir> [--model <name>] [--workers N] [-v|--verbose]`
 - Enhance all supported audio files in a directory (non-recursive).
+- Files are processed concurrently; `--workers` sets the thread count (default: CPU count).
 
 4. `dpdfnet download [model] [--force|--refresh] [-q|--quiet | -v|--verbose]`
 - Download all models when `model` is omitted, or one model when provided.
@@ -83,8 +84,11 @@ CLI examples:
 # Enhance one file
 dpdfnet enhance noisy.wav enhanced.wav --model dpdfnet4
 
-# Enhance a directory
+# Enhance a directory (uses all CPU cores by default)
 dpdfnet enhance-dir ./noisy_wavs ./enhanced_wavs --model dpdfnet2
+
+# Enhance a directory with a fixed worker count
+dpdfnet enhance-dir ./noisy_wavs ./enhanced_wavs --workers 4
 
 # Download models
 dpdfnet download
