@@ -19,7 +19,7 @@ def test_import_surface() -> None:
 
     assert hasattr(dpdfnet, "enhance")
     assert hasattr(dpdfnet, "enhance_file")
-    assert not hasattr(dpdfnet, "StreamEnhancer")
+    assert hasattr(dpdfnet, "StreamEnhancer")
     assert hasattr(dpdfnet, "available_models")
     assert hasattr(dpdfnet, "download")
 
@@ -215,3 +215,128 @@ def test_missing_model_message_does_not_reference_unsupported_cli_flags(tmp_path
     message = str(exc_info.value)
     assert "--onnx" not in message
     assert "onnx_path" in message
+
+
+# ---------------------------------------------------------------------------
+# StreamEnhancer tests
+# ---------------------------------------------------------------------------
+
+def _make_fake_stream_enhancer(monkeypatch, win_len: int = 8, model_sr: int = 16000):
+    """Return a StreamEnhancer backed by a fake zero-output ONNX session."""
+    from dpdfnet import stream as stream_mod
+
+    freq_bins = win_len // 2 + 1
+
+    class _FakeSession:
+        def get_inputs(self):
+            class _Spec:
+                name = "spec"
+                shape = (1, 1, freq_bins, 2)
+
+            class _State:
+                name = "state"
+
+            return [_Spec(), _State()]
+
+        def get_outputs(self):
+            class _OutSpec:
+                name = "out_spec"
+
+            class _OutState:
+                name = "out_state"
+
+            return [_OutSpec(), _OutState()]
+
+        def run(self, _outputs, _inputs):
+            return (
+                np.zeros((1, 1, freq_bins, 2), dtype=np.float32),
+                np.zeros((1,), dtype=np.float32),
+            )
+
+    class _FakeRuntime:
+        session = _FakeSession()
+        init_state = np.zeros((1,), dtype=np.float32)
+        in_spec_name = "spec"
+        in_state_name = "state"
+        out_spec_name = "out_spec"
+        out_state_name = "out_state"
+
+    class _ResolvedInfo:
+        sample_rate = model_sr
+
+    class _ResolvedModel:
+        info = _ResolvedInfo()
+        onnx_path = Path("fake.onnx")
+
+    monkeypatch.setattr(stream_mod, "resolve_model", lambda **_kw: _ResolvedModel())
+    monkeypatch.setattr(stream_mod, "build_runtime_model", lambda _p: _FakeRuntime())
+    monkeypatch.setattr(stream_mod, "infer_win_len", lambda _s, _sr: win_len)
+
+    from dpdfnet import StreamEnhancer
+
+    return StreamEnhancer(model="dpdfnet2")
+
+
+def test_stream_enhancer_buffers_small_chunks(monkeypatch) -> None:
+    """Small chunks are buffered; output appears only after win_len samples arrive."""
+    e = _make_fake_stream_enhancer(monkeypatch, win_len=8)  # hop_size=4
+    # 3 samples < win_len=8 → nothing to process yet
+    out = e.process(np.zeros(3, dtype=np.float32), sample_rate=16000)
+    assert len(out) == 0
+    # 5 more → total 8 = win_len → one frame committed → hop_size=4 output samples
+    out = e.process(np.zeros(5, dtype=np.float32), sample_rate=16000)
+    assert len(out) == 4
+
+
+def test_stream_enhancer_misaligned_block_size(monkeypatch) -> None:
+    """Chunk sizes not aligned to hop_size must not drop or duplicate samples.
+
+    Simulates sounddevice with BLOCK_SIZE=512 at 48 kHz against a 16 kHz model
+    by feeding 171-sample chunks (≈ 512 * 16000 / 48000) at model SR directly.
+    """
+    WIN = 320
+    HOP = 160
+    e = _make_fake_stream_enhancer(monkeypatch, win_len=WIN)
+
+    total_input = int(16000 * 1.0)  # 1 second at model SR
+    CHUNK = 171  # not a multiple of HOP
+
+    outputs = []
+    fed = 0
+    while fed < total_input:
+        n = min(CHUNK, total_input - fed)
+        out = e.process(np.zeros(n, dtype=np.float32), sample_rate=16000)
+        outputs.append(out)
+        fed += n
+
+    total_output = sum(len(o) for o in outputs)
+    expected_frames = max(0, (total_input - WIN) // HOP + 1)
+    assert total_output == expected_frames * HOP
+    for o in outputs:
+        assert o.dtype == np.float32
+
+
+def test_stream_enhancer_reset_clears_state(monkeypatch) -> None:
+    """After reset(), the buffer is empty and a full win_len is needed again."""
+    e = _make_fake_stream_enhancer(monkeypatch, win_len=8)
+    e.process(np.zeros(5, dtype=np.float32), sample_rate=16000)  # partial buffer
+    e.reset()
+    out = e.process(np.zeros(5, dtype=np.float32), sample_rate=16000)
+    assert len(out) == 0
+
+
+def test_stream_enhancer_flush_drains_remainder(monkeypatch) -> None:
+    """flush() zero-pads the last partial window and returns enhanced samples."""
+    e = _make_fake_stream_enhancer(monkeypatch, win_len=8)
+    e.process(np.zeros(5, dtype=np.float32), sample_rate=16000)  # 5 in buf, no output
+    out = e.flush()
+    assert len(out) > 0
+    assert out.dtype == np.float32
+
+
+def test_stream_enhancer_flush_on_empty_buffer_returns_empty(monkeypatch) -> None:
+    """flush() on a fresh (or fully-drained) instance returns an empty array."""
+    e = _make_fake_stream_enhancer(monkeypatch, win_len=8)
+    out = e.flush()
+    assert len(out) == 0
+    assert out.dtype == np.float32
