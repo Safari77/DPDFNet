@@ -21,7 +21,6 @@ class ModelInfo:
     frame_ms: float
     description: str
     onnx_filename: str
-    state_filename: str
 
 
 MODEL_REGISTRY: Dict[str, ModelInfo] = {
@@ -31,7 +30,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         frame_ms=20.0,
         description="Fastest and lowest-compute baseline model.",
         onnx_filename="baseline.onnx",
-        state_filename="baseline_state.npz",
     ),
     "dpdfnet2": ModelInfo(
         name="dpdfnet2",
@@ -39,7 +37,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         frame_ms=20.0,
         description="Balanced quality/speed DPDFNet-2 model.",
         onnx_filename="dpdfnet2.onnx",
-        state_filename="dpdfnet2_state.npz",
     ),
     "dpdfnet4": ModelInfo(
         name="dpdfnet4",
@@ -47,7 +44,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         frame_ms=20.0,
         description="Higher quality DPDFNet-4 model.",
         onnx_filename="dpdfnet4.onnx",
-        state_filename="dpdfnet4_state.npz",
     ),
     "dpdfnet8": ModelInfo(
         name="dpdfnet8",
@@ -55,7 +51,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         frame_ms=20.0,
         description="Highest quality 16 kHz DPDFNet-8 model.",
         onnx_filename="dpdfnet8.onnx",
-        state_filename="dpdfnet8_state.npz",
     ),
     "dpdfnet2_48khz_hr": ModelInfo(
         name="dpdfnet2_48khz_hr",
@@ -63,7 +58,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         frame_ms=20.0,
         description="High-resolution 48 kHz DPDFNet-2 model.",
         onnx_filename="dpdfnet2_48khz_hr.onnx",
-        state_filename="dpdfnet2_48khz_hr_state.npz",
     ),
 }
 
@@ -79,7 +73,6 @@ DEFAULT_DOWNLOAD_RETRIES = 3
 class ResolvedModel:
     info: ModelInfo
     onnx_path: Path
-    state_path: Path
 
 
 def _unique_paths(paths: List[Path]) -> List[Path]:
@@ -308,61 +301,53 @@ def _ensure_downloaded(
     destination_dir = destination_dir.expanduser().resolve()
     _assert_writable_dir(destination_dir)
     onnx_path = destination_dir / info.onnx_filename
-    state_path = destination_dir / info.state_filename
 
     lock = FileLock(str(destination_dir / f".{info.name}.download.lock"))
     with lock:
-        if not force and _is_valid_file(onnx_path) and _is_valid_file(state_path):
+        if not force and _is_valid_file(onnx_path):
             return
 
         action = "Refreshing" if force else "Downloading"
         _emit(f"{action} model '{info.name}' to {destination_dir}", notifier)
-        assets = [
-            (onnx_path, info.onnx_filename),
-            (state_path, info.state_filename),
-        ]
-        for file_path, filename in assets:
-            if not force and _is_valid_file(file_path):
-                continue
-            url = _hf_url(filename, revision)
-            if verbose:
-                _emit(f"  {filename} <- {url}", notifier)
-            try:
-                _download_with_retries(
-                    url=url,
-                    destination=file_path,
-                    verbose=verbose,
-                    notifier=notifier,
-                )
-            except HTTPError as exc:
-                detail = f"HTTP {exc.code}" + (f" ({exc.reason})" if exc.reason else "")
-                raise RuntimeError(
-                    f"Failed to download '{filename}' from '{url}'. "
-                    f"{detail}. Confirm access to Hugging Face and retry. "
-                    f"You can also pre-download using: dpdfnet download {info.name}"
-                ) from exc
-            except URLError as exc:
-                raise RuntimeError(
-                    f"Failed to download '{filename}' from '{url}'. "
-                    f"Network error: {exc.reason}. Check network/proxy settings and retry. "
-                    f"You can also pre-download using: dpdfnet download {info.name}"
-                ) from exc
-            except OSError as exc:
-                if exc.errno in {errno.EACCES, errno.EPERM, errno.EROFS}:
-                    raise RuntimeError(
-                        f"Failed to write '{filename}' to '{destination_dir}'. "
-                        f"Set DPDFNET_CACHE_DIR or DPDFNET_MODEL_DIR to a writable location. ({exc})"
-                    ) from exc
-                raise RuntimeError(
-                    f"Failed to download '{filename}' from '{url}'. "
-                    f"Local filesystem error while writing '{file_path}': {exc}. "
-                    f"You can also pre-download using: dpdfnet download {info.name}"
-                ) from exc
-
-        if not (_is_valid_file(onnx_path) and _is_valid_file(state_path)):
+        url = _hf_url(info.onnx_filename, revision)
+        if verbose:
+            _emit(f"  {info.onnx_filename} <- {url}", notifier)
+        try:
+            _download_with_retries(
+                url=url,
+                destination=onnx_path,
+                verbose=verbose,
+                notifier=notifier,
+            )
+        except HTTPError as exc:
+            detail = f"HTTP {exc.code}" + (f" ({exc.reason})" if exc.reason else "")
             raise RuntimeError(
-                f"Downloaded files for model '{info.name}' are invalid in {destination_dir}. "
-                "Please retry after removing the files."
+                f"Failed to download '{info.onnx_filename}' from '{url}'. "
+                f"{detail}. Confirm access to Hugging Face and retry. "
+                f"You can also pre-download using: dpdfnet download {info.name}"
+            ) from exc
+        except URLError as exc:
+            raise RuntimeError(
+                f"Failed to download '{info.onnx_filename}' from '{url}'. "
+                f"Network error: {exc.reason}. Check network/proxy settings and retry. "
+                f"You can also pre-download using: dpdfnet download {info.name}"
+            ) from exc
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EPERM, errno.EROFS}:
+                raise RuntimeError(
+                    f"Failed to write '{info.onnx_filename}' to '{destination_dir}'. "
+                    f"Set DPDFNET_CACHE_DIR or DPDFNET_MODEL_DIR to a writable location. ({exc})"
+                ) from exc
+            raise RuntimeError(
+                f"Failed to download '{info.onnx_filename}' from '{url}'. "
+                f"Local filesystem error while writing '{onnx_path}': {exc}. "
+                f"You can also pre-download using: dpdfnet download {info.name}"
+            ) from exc
+
+        if not _is_valid_file(onnx_path):
+            raise RuntimeError(
+                f"Downloaded ONNX file for model '{info.name}' is invalid in {destination_dir}. "
+                "Please retry after removing the file."
             )
 
 
@@ -378,7 +363,6 @@ def resolve_model(
     *,
     model: str,
     onnx_path: Optional[Union[str, Path]] = None,
-    state_path: Optional[Union[str, Path]] = None,
     auto_download: bool = True,
     verbose: bool = False,
     notifier: Optional[Callable[[str], None]] = None,
@@ -410,41 +394,10 @@ def resolve_model(
         searched = [str(p) for p in search_dirs]
         raise FileNotFoundError(
             f"Could not resolve ONNX model for '{info.name}'. Searched: {searched}. "
-            "Set DPDFNET_CACHE_DIR/DPDFNET_MODEL_DIR, or use Python API onnx_path/state_path."
+            "Set DPDFNET_CACHE_DIR/DPDFNET_MODEL_DIR, or use Python API onnx_path parameter."
         )
 
-    if state_path is not None:
-        chosen_state = Path(state_path).expanduser().resolve()
-    elif onnx_path is not None:
-        chosen_state = chosen_onnx.with_name(f"{chosen_onnx.stem}_state.npz")
-    else:
-        chosen_state = chosen_onnx.with_name(info.state_filename)
-
-    if not _is_valid_file(chosen_state):
-        if state_path is None and onnx_path is None:
-            fallback_state = _find_first_existing(search_dirs, info.state_filename)
-            if fallback_state is not None:
-                chosen_state = fallback_state
-        if not _is_valid_file(chosen_state) and state_path is None and onnx_path is None and auto_download:
-            target = _download_target_dir()
-            _ensure_downloaded(
-                info=info,
-                destination_dir=target,
-                revision=DEFAULT_REVISION,
-                force=False,
-                verbose=verbose,
-                notifier=notifier,
-            )
-            chosen_onnx = (target / info.onnx_filename).resolve()
-            chosen_state = (target / info.state_filename).resolve()
-
-    if not _is_valid_file(chosen_state):
-        raise FileNotFoundError(
-            f"State file not found or empty: {chosen_state}. "
-            "State files must be named <model>_state.npz unless explicitly provided."
-        )
-
-    return ResolvedModel(info=info, onnx_path=chosen_onnx, state_path=chosen_state)
+    return ResolvedModel(info=info, onnx_path=chosen_onnx)
 
 
 def download_model(
@@ -467,7 +420,6 @@ def download_model(
     return ResolvedModel(
         info=info,
         onnx_path=(target / info.onnx_filename).resolve(),
-        state_path=(target / info.state_filename).resolve(),
     )
 
 
@@ -499,17 +451,12 @@ def available_model_entries() -> List[Dict[str, Any]]:
     for name in supported_models():
         info = MODEL_REGISTRY[name]
         onnx_path = _find_first_existing(search_dirs, info.onnx_filename)
-        state_path = _find_first_existing(search_dirs, info.state_filename)
         row = asdict(info)
         row["onnx_path"] = str(onnx_path) if onnx_path else None
-        row["state_path"] = str(state_path) if state_path else None
         row["onnx_found"] = onnx_path is not None
-        row["state_found"] = state_path is not None
-        row["ready"] = onnx_path is not None and state_path is not None
+        row["ready"] = onnx_path is not None
         row["cache_dir"] = str(cache_dir)
-        row["cached"] = _is_valid_file(cache_dir / info.onnx_filename) and _is_valid_file(
-            cache_dir / info.state_filename
-        )
+        row["cached"] = _is_valid_file(cache_dir / info.onnx_filename)
         entries.append(row)
 
     return entries

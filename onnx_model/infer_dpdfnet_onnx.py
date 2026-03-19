@@ -38,38 +38,27 @@ def infer_win_len(session: ort.InferenceSession, default_sr: int) -> int:
     return int(round(default_sr * 0.02))
 
 
-def resolve_state_path(onnx_path: Path) -> Path:
-    resolved = onnx_path.with_name(f"{onnx_path.stem}_state.npz")
-    if not resolved.is_file():
-        raise FileNotFoundError(
-            f"Initial state file not found: {resolved}. "
-            "Expected <model>_state.npz next to the ONNX file."
-        )
-    return resolved
-
-
-def load_initial_state(session: ort.InferenceSession, state_path: Path) -> np.ndarray:
-    with np.load(state_path) as data:
-        if "init_state" not in data:
-            raise ValueError(f"Missing 'init_state' key in state file: {state_path}")
-        init_state = np.ascontiguousarray(data["init_state"].astype(np.float32, copy=False))
-
+def load_initial_state_from_metadata(session: ort.InferenceSession) -> np.ndarray:
     if len(session.get_inputs()) < 2:
         raise ValueError("Expected streaming ONNX model with two inputs: (spec, state).")
 
-    expected_shape = session.get_inputs()[1].shape
-    if len(expected_shape) != init_state.ndim:
+    meta = session.get_modelmeta().custom_metadata_map
+    try:
+        state_size = int(meta["state_size"])
+        erb_norm_state_size = int(meta["erb_norm_state_size"])
+        spec_norm_state_size = int(meta["spec_norm_state_size"])
+        erb_norm_init = np.array([float(x) for x in meta["erb_norm_init"].split(",")], dtype=np.float32)
+        spec_norm_init = np.array([float(x) for x in meta["spec_norm_init"].split(",")], dtype=np.float32)
+    except KeyError as exc:
         raise ValueError(
-            f"Initial state rank mismatch: expected={expected_shape}, actual={init_state.shape}"
-        )
+            f"ONNX model is missing required metadata key: {exc}. "
+            "Re-export the model to embed state initialisation metadata."
+        ) from exc
 
-    for exp_dim, act_dim in zip(expected_shape, init_state.shape):
-        if isinstance(exp_dim, int) and exp_dim != act_dim:
-            raise ValueError(
-                f"Initial state shape mismatch: expected={expected_shape}, actual={init_state.shape}"
-            )
-
-    return init_state
+    init_state = np.zeros(state_size, dtype=np.float32)
+    init_state[0:erb_norm_state_size] = erb_norm_init
+    init_state[erb_norm_state_size:erb_norm_state_size + spec_norm_state_size] = spec_norm_init
+    return np.ascontiguousarray(init_state)
 
 
 def build_session(onnx_path: Path) -> ort.InferenceSession:
@@ -270,7 +259,6 @@ def main() -> None:
         sys.exit(1)
 
     expected_sr = MODEL_SAMPLE_RATE_BY_NAME[model_name]
-    state_path = resolve_state_path(onnx_path)
     onnx_suffix = model_name
     noisy_dir = args.noisy_dir.expanduser().resolve()
     enhanced_dir = args.enhanced_dir.expanduser().resolve()
@@ -287,7 +275,7 @@ def main() -> None:
     session = build_session(onnx_path)
 
     win_len = infer_win_len(session, expected_sr)
-    init_state = load_initial_state(session, state_path)
+    init_state = load_initial_state_from_metadata(session)
 
     print(f"[INFO] ONNX Runtime version: {ort.__version__}")
     print(f"[INFO] Host CPU cores (os.cpu_count): {os.cpu_count()}")
@@ -295,7 +283,6 @@ def main() -> None:
     print(f"[INFO] Model name: {model_name}")
     print(f"[INFO] Model SR: {expected_sr} Hz")
     print(f"[INFO] STFT win_len: {win_len}, hop: {win_len // 2}")
-    print(f"[INFO] Initial state: {state_path}")
     print(f"[INFO] Initial state shape: {tuple(init_state.shape)}")
     print(f"Input : {noisy_dir}")
     print(f"Output: {enhanced_dir}")

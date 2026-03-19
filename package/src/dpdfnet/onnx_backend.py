@@ -48,45 +48,40 @@ def create_cpu_session(onnx_path: Union[str, Path]) -> ort.InferenceSession:
     return session
 
 
-def load_initial_state(
-    session: ort.InferenceSession,
-    state_path: Union[str, Path],
-) -> np.ndarray:
-    path = Path(state_path).expanduser().resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"Initial state file not found: {path}")
-
-    with np.load(path) as data:
-        if "init_state" not in data:
-            raise ValueError(f"Missing 'init_state' key in state file: {path}")
-        init_state = np.ascontiguousarray(
-            data["init_state"].astype(np.float32, copy=False)
-        )
-
+def load_initial_state_from_metadata(session: ort.InferenceSession) -> np.ndarray:
     if len(session.get_inputs()) < 2:
         raise ValueError(
             "Expected streaming ONNX model with two inputs: (spec, state)."
         )
 
-    expected_shape = session.get_inputs()[1].shape
-    if len(expected_shape) != init_state.ndim:
-        raise ValueError(
-            f"Initial state rank mismatch: expected={expected_shape}, actual={init_state.shape}"
+    meta = session.get_modelmeta().custom_metadata_map
+    try:
+        state_size = int(meta["state_size"])
+        erb_norm_state_size = int(meta["erb_norm_state_size"])
+        spec_norm_state_size = int(meta["spec_norm_state_size"])
+        erb_norm_init = np.array(
+            [float(x) for x in meta["erb_norm_init"].split(",")], dtype=np.float32
         )
-    for exp_dim, act_dim in zip(expected_shape, init_state.shape):
-        if isinstance(exp_dim, int) and exp_dim != act_dim:
-            raise ValueError(
-                f"Initial state shape mismatch: expected={expected_shape}, actual={init_state.shape}"
-            )
-    return init_state
+        spec_norm_init = np.array(
+            [float(x) for x in meta["spec_norm_init"].split(",")], dtype=np.float32
+        )
+    except KeyError as exc:
+        raise ValueError(
+            f"ONNX model is missing required metadata key: {exc}. "
+            "Re-export the model to embed state initialisation metadata."
+        ) from exc
+
+    init_state = np.zeros(state_size, dtype=np.float32)
+    init_state[0:erb_norm_state_size] = erb_norm_init
+    init_state[erb_norm_state_size:erb_norm_state_size + spec_norm_state_size] = spec_norm_init
+    return np.ascontiguousarray(init_state)
 
 
 def build_runtime_model(
     onnx_path: Union[str, Path],
-    state_path: Union[str, Path],
 ) -> RuntimeModel:
     session = create_cpu_session(onnx_path)
-    init_state = load_initial_state(session, state_path)
+    init_state = load_initial_state_from_metadata(session)
 
     if len(session.get_inputs()) < 2 or len(session.get_outputs()) < 2:
         raise ValueError(

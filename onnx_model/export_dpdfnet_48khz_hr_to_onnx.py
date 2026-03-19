@@ -118,16 +118,6 @@ def export_onnx(model: DPDFNet48HR, output_path: Path, opset: int, use_dynamic_a
         torch.onnx.export(wrapper, (spec, state_in), dynamo=False, **export_kwargs)
 
 
-def export_initial_state(model: DPDFNet48HR, state_path: Path) -> tuple[int, ...]:
-    init_state = model.initial_state(dtype=torch.float32).cpu().numpy()
-    np.savez_compressed(
-        state_path,
-        init_state=init_state,
-        state_shape=np.asarray(init_state.shape, dtype=np.int64),
-        state_dtype=np.asarray(str(init_state.dtype)),
-    )
-    return tuple(init_state.shape)
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export streaming 48 kHz DPDFNet model to ONNX.")
@@ -167,16 +157,11 @@ def main() -> None:
     args = parse_args()
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    state_output = output.with_name(f"{output.stem}_state.npz")
-    state_output.parent.mkdir(parents=True, exist_ok=True)
 
     model = build_model(args)
     export_onnx(model, output, opset=args.opset, use_dynamic_axes=args.dynamic_axes)
     add_meta_data(output, build_meta_data(model))
-    state_shape = export_initial_state(model, state_output)
     print(f"[OK] Exported ONNX model to: {output}")
-    print(f"[OK] Exported initial state to: {state_output}")
-    print(f"[INFO] Initial state shape: {state_shape}")
     print(f"[INFO] State vector size: {model.state_size()}")
     print(f"[INFO] Frequency bins: {model.freq_bins}")
 

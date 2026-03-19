@@ -39,7 +39,6 @@ def test_model_resolution_auto_download(tmp_path, monkeypatch) -> None:
 
     assert resolved.info.name == model_name
     assert resolved.onnx_path.is_file()
-    assert resolved.state_path.is_file()
 
 
 def test_download_all_matches_registry(tmp_path, monkeypatch) -> None:
@@ -56,7 +55,6 @@ def test_download_all_matches_registry(tmp_path, monkeypatch) -> None:
     for model_name in models.supported_models():
         info = models.MODEL_REGISTRY[model_name]
         assert (tmp_path / info.onnx_filename).is_file()
-        assert (tmp_path / info.state_filename).is_file()
 
 
 def test_cli_download_all_matches_registry(tmp_path, monkeypatch, capsys) -> None:
@@ -93,7 +91,6 @@ def test_enhance_progress_callback_reports_frame_progress(monkeypatch) -> None:
     class _ResolvedModel:
         info = _ResolvedInfo()
         onnx_path = Path("fake.onnx")
-        state_path = Path("fake.npz")
 
     monkeypatch.setattr(api, "resolve_model", lambda **_kwargs: _ResolvedModel())
 
@@ -106,7 +103,7 @@ def test_enhance_progress_callback_reports_frame_progress(monkeypatch) -> None:
     monkeypatch.setattr(audio_mod, "preprocess_waveform", lambda _w, _cfg: np.zeros((1, 4, 3, 2), dtype=np.float32))
     monkeypatch.setattr(audio_mod, "postprocess_spec", lambda _spec, _cfg: np.zeros((8,), dtype=np.float32))
     monkeypatch.setattr(audio_mod, "fit_length", lambda x, _n: np.asarray(x, dtype=np.float32))
-    monkeypatch.setattr(backend_mod, "build_runtime_model", lambda _onnx, _state: _FakeRuntime())
+    monkeypatch.setattr(backend_mod, "build_runtime_model", lambda _onnx: _FakeRuntime())
     monkeypatch.setattr(backend_mod, "infer_win_len", lambda _session, _sr: 4)
 
     updates = []
@@ -199,10 +196,8 @@ def test_model_download_retries_transient_network_errors(tmp_path, monkeypatch) 
     )
 
     assert resolved.onnx_path == (tmp_path / info.onnx_filename).resolve()
-    assert resolved.state_path == (tmp_path / info.state_filename).resolve()
     assert resolved.onnx_path.is_file()
-    assert resolved.state_path.is_file()
-    assert attempts["count"] >= 4
+    assert attempts["count"] >= 3
 
 
 def test_missing_model_message_does_not_reference_unsupported_cli_flags(tmp_path, monkeypatch) -> None:
@@ -219,4 +214,4 @@ def test_missing_model_message_does_not_reference_unsupported_cli_flags(tmp_path
 
     message = str(exc_info.value)
     assert "--onnx" not in message
-    assert "onnx_path/state_path" in message
+    assert "onnx_path" in message

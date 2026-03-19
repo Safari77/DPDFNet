@@ -54,7 +54,6 @@ def enhance(
     *,
     model: str = DEFAULT_MODEL,
     onnx_path: Optional[Union[str, Path]] = None,
-    state_path: Optional[Union[str, Path]] = None,
     verbose: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> np.ndarray:
@@ -74,11 +73,10 @@ def enhance(
     resolved = resolve_model(
         model=model,
         onnx_path=onnx_path,
-        state_path=state_path,
         auto_download=True,
         verbose=verbose,
     )
-    runtime = build_runtime_model(resolved.onnx_path, resolved.state_path)
+    runtime = build_runtime_model(resolved.onnx_path)
 
     waveform_model_sr = ensure_sample_rate(waveform, sr_in, resolved.info.sample_rate)
     win_len = infer_win_len(runtime.session, resolved.info.sample_rate)
@@ -118,7 +116,6 @@ def enhance_file(
     *,
     model: str = DEFAULT_MODEL,
     onnx_path: Optional[Union[str, Path]] = None,
-    state_path: Optional[Union[str, Path]] = None,
     verbose: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> Path:
@@ -136,7 +133,6 @@ def enhance_file(
         sample_rate=int(sr),
         model=model,
         onnx_path=onnx_path,
-        state_path=state_path,
         verbose=verbose,
         progress_callback=progress_callback,
     )

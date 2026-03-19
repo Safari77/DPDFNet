@@ -39,18 +39,24 @@ def infer_audio_params_from_model_name(model_name: str) -> tuple[int, int, int]:
         ) from exc
 
 
-def load_initial_state(state_path: Path) -> np.ndarray:
-    suffix = state_path.suffix.lower()
-    if suffix == ".npz":
-        with np.load(state_path) as data:
-            if "init_state" not in data:
-                raise ValueError(f"Missing 'init_state' key in state file: {state_path}")
-            state = data["init_state"]
-    elif suffix == ".npy":
-        state = np.load(state_path)
-    else:
-        raise ValueError(f"Unsupported state file: {state_path}. Use .npz or .npy.")
-    return np.ascontiguousarray(state.astype(np.float32, copy=False))
+def load_initial_state_from_metadata(session: ort.InferenceSession) -> np.ndarray:
+    meta = session.get_modelmeta().custom_metadata_map
+    try:
+        state_size = int(meta["state_size"])
+        erb_norm_state_size = int(meta["erb_norm_state_size"])
+        spec_norm_state_size = int(meta["spec_norm_state_size"])
+        erb_norm_init = np.array([float(x) for x in meta["erb_norm_init"].split(",")], dtype=np.float32)
+        spec_norm_init = np.array([float(x) for x in meta["spec_norm_init"].split(",")], dtype=np.float32)
+    except KeyError as exc:
+        raise ValueError(
+            f"ONNX model is missing required metadata key: {exc}. "
+            "Re-export the model to embed state initialisation metadata."
+        ) from exc
+
+    init_state = np.zeros(state_size, dtype=np.float32)
+    init_state[0:erb_norm_state_size] = erb_norm_init
+    init_state[erb_norm_state_size:erb_norm_state_size + spec_norm_state_size] = spec_norm_init
+    return np.ascontiguousarray(init_state)
 
 
 def validate_state_shape(session: ort.InferenceSession, state: np.ndarray) -> None:
@@ -143,14 +149,6 @@ def main() -> None:
     if not onnx_path.is_file():
         raise FileNotFoundError(f"ONNX file not found: {onnx_path}")
 
-    state_path = onnx_path.with_name(f"{onnx_path.stem}_state.npz")
-    if not state_path.is_file():
-        state_path_npy = onnx_path.with_name(f"{onnx_path.stem}_state.npy")
-        if state_path_npy.is_file():
-            state_path = state_path_npy
-    if not state_path.is_file():
-        raise FileNotFoundError(f"State file not found: {state_path}")
-
     available = set(ort.get_available_providers())
     providers = [p for p in PROVIDERS_PRIORITY if p in available]
     if not providers:
@@ -163,7 +161,7 @@ def main() -> None:
     sess_opts.inter_op_num_threads = 1
     session = ort.InferenceSession(str(onnx_path), sess_options=sess_opts, providers=providers)
 
-    init_state = load_initial_state(state_path)
+    init_state = load_initial_state_from_metadata(session)
     validate_state_shape(session, init_state)
 
     sample_rate, n_fft, hop_size = infer_audio_params_from_model_name(MODEL_NAME)
@@ -423,7 +421,7 @@ def main() -> None:
 
     print(f"[INFO] ONNX Runtime: {ort.__version__}")
     print(f"[INFO] ONNX model: {onnx_path}")
-    print(f"[INFO] State file: {state_path} shape={tuple(init_state.shape)}")
+    print(f"[INFO] Initial state shape: {tuple(init_state.shape)}")
     print(f"[INFO] Providers: {session.get_providers()}")
     print(f"[INFO] Audio params: sr={sample_rate}, n_fft={n_fft}, hop={hop_size}")
     print("Streaming... speak into the mic. Close the window to stop.")

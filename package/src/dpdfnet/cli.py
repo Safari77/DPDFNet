@@ -134,7 +134,7 @@ def _print_model_table() -> int:
         print(
             f"{row['name']}: sr={row['sample_rate']}Hz, "
             f"ready={row['ready']}, "
-            f"onnx_found={row['onnx_found']}, state_found={row['state_found']}, "
+            f"onnx_found={row['onnx_found']}, "
             f"cached={row['cached']}"
         )
     return 0
