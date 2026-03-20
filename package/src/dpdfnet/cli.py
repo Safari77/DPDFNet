@@ -145,14 +145,32 @@ def _print_model_table() -> int:
     from .api import available_models
 
     rows = available_models()
-    print(f"cache_dir={get_cache_model_dir().resolve()}")
-    for row in rows:
-        print(
-            f"{row['name']}: sr={row['sample_rate']}Hz, "
-            f"ready={row['ready']}, "
-            f"onnx_found={row['onnx_found']}, "
-            f"cached={row['cached']}"
-        )
+
+    headers = ["Model", "Sample Rate", "Ready", "Cached", "Description"]
+    col_keys = ["name", "sample_rate", "ready", "cached", "description"]
+
+    def fmt(row: dict, key: str) -> str:
+        v = row[key]
+        if key == "sample_rate":
+            return f"{v // 1000} kHz"
+        if isinstance(v, bool):
+            return "yes" if v else "no"
+        return str(v)
+
+    table = [[fmt(r, k) for k in col_keys] for r in rows]
+    col_widths = [max(len(h), *(len(r[i]) for r in table)) for i, h in enumerate(headers)]
+
+    sep = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
+    header_row = "| " + " | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers)) + " |"
+
+    print(f"\n  Cache dir: {get_cache_model_dir().resolve()}\n")
+    print(sep)
+    print(header_row)
+    print(sep)
+    for r in table:
+        print("| " + " | ".join(r[i].ljust(col_widths[i]) for i in range(len(headers))) + " |")
+    print(sep)
+    print()
     return 0
 
 
