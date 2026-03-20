@@ -95,13 +95,9 @@ hf download Ceva-IP/DPDFNet \
   --include "checkpoints/*.pth" \
   --local-dir model_zoo \
 
-# ONNX models (&states) (HF path: onnx/* -> local: model_zoo/onnx/*)
+# ONNX models (HF path: onnx/* -> local: model_zoo/onnx/*)
 hf download Ceva-IP/DPDFNet \
   --include "onnx/*.onnx" \
-  --local-dir model_zoo \
-
-hf download Ceva-IP/DPDFNet \
-  --include "onnx/*.npz" \
   --local-dir model_zoo \
 
 # TFLite models (HF path: *.tflite at repo root -> local: model_zoo/tflite/*)
