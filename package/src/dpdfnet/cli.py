@@ -10,7 +10,8 @@ import threading
 from typing import Callable, List, Optional
 
 from tqdm import tqdm
-from .models import DEFAULT_MODEL, get_cache_model_dir, supported_models
+from .banner import print_banner
+from .models import DEFAULT_MODEL, get_cache_model_dir, get_model_info, supported_models
 
 
 def _build_frame_progress_callback(
@@ -177,6 +178,13 @@ def _print_model_table() -> int:
 def _run_enhance(args: argparse.Namespace) -> int:
     from .api import enhance_file
 
+    info = get_model_info(args.model)
+    print_banner(
+        model_name=info.name,
+        sample_rate=info.sample_rate,
+        description=info.description,
+    )
+
     with tqdm(
         total=0,
         unit="frame",
@@ -200,6 +208,13 @@ def _run_enhance_dir(args: argparse.Namespace) -> int:
     from .models import resolve_model
     from .onnx_backend import build_runtime_model
 
+    info = get_model_info(args.model)
+    print_banner(
+        model_name=info.name,
+        sample_rate=info.sample_rate,
+        description=info.description,
+    )
+
     input_dir = Path(args.input_dir).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     if not input_dir.is_dir():
@@ -217,8 +232,17 @@ def _run_enhance_dir(args: argparse.Namespace) -> int:
         )
 
     resolved = resolve_model(model=args.model, auto_download=True, verbose=args.verbose)
-    runtime = build_runtime_model(resolved.onnx_path)
     n_workers = args.workers or (os.cpu_count() or 1)
+
+    # Each thread gets its own ORT session to avoid lock contention.
+    _tls = threading.local()
+
+    def _get_runtime():
+        rt = getattr(_tls, "runtime", None)
+        if rt is None:
+            rt = build_runtime_model(resolved.onnx_path)
+            _tls.runtime = rt
+        return rt
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _total_lock = threading.Lock()
@@ -261,7 +285,7 @@ def _run_enhance_dir(args: argparse.Namespace) -> int:
                 return _enhance_file_with_runtime(
                     input_path=wav_path,
                     output_path=out_path,
-                    runtime=runtime,
+                    runtime=_get_runtime(),
                     model_sample_rate=resolved.info.sample_rate,
                     progress_callback=_make_callback(wav_path),
                 )

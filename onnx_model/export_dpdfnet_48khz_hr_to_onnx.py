@@ -99,7 +99,11 @@ def build_model(args: argparse.Namespace) -> DPDFNet48HR:
         dprnn_num_blocks=args.dprnn_num_blocks,
     )
     if args.checkpoint is not None:
-        state_dict = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+        try:
+            state_dict = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+        except Exception:
+            checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+            state_dict = checkpoint["state_dict"]
         stream_state_dict = correct_state_dict(state_dict)
         model.load_state_dict(stream_state_dict, strict=True)
     convert_grouped_linear_to_einsum(model)

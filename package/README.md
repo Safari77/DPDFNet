@@ -88,7 +88,7 @@ dpdfnet enhance noisy.wav enhanced.wav --model dpdfnet4
 dpdfnet enhance-dir ./noisy_wavs ./enhanced_wavs --model dpdfnet2
 
 # Enhance a directory with a fixed worker count
-dpdfnet enhance-dir ./noisy_wavs ./enhanced_wavs --workers 4
+dpdfnet enhance-dir ./noisy_wavs ./enhanced_wavs --model dpdfnet2 --workers 4
 
 # Download models
 dpdfnet download

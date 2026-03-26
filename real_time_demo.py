@@ -13,7 +13,7 @@ from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 # CONFIG (GLOBAL STYLE)
 # =======================
 ONNX_DIR = Path("./model_zoo/onnx")
-MODEL_NAME = "dpdfnet2"  # baseline | dpdfnet2 | dpdfnet4 | dpdfnet8 | dpdfnet2_48khz_hr
+MODEL_NAME = "dpdfnet2"  # baseline | dpdfnet2 | dpdfnet4 | dpdfnet8 | dpdfnet2_48khz_hr | dpdfnet8_48khz_hr
 ONNX_PATH = ONNX_DIR / f"{MODEL_NAME}.onnx"
 
 PROVIDERS_PRIORITY = ["CPUExecutionProvider"]
@@ -27,6 +27,7 @@ MODEL_AUDIO_PARAMS_BY_NAME = {
     "dpdfnet4": (16000, 320, 160),
     "dpdfnet8": (16000, 320, 160),
     "dpdfnet2_48khz_hr": (48000, 960, 480),
+    "dpdfnet8_48khz_hr": (48000, 960, 480),
 }
 
 def infer_audio_params_from_model_name(model_name: str) -> tuple[int, int, int]:

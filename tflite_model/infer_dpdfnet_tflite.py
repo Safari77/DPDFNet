@@ -1,13 +1,17 @@
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import sys
+import threading
+import time
 
 import numpy as np
 import soundfile as sf
 import librosa
 import tensorflow as tf
-from tqdm import tqdm
+
 from banner import print_banner
 
 TFLITE_DIR = Path('./model_zoo/tflite')
@@ -28,6 +32,7 @@ MODEL_CONFIG = {
 
     # 48 kHz models - TBD
     "dpdfnet2_48khz_hr": {"sr": 48000, "win_len": 960},
+    "dpdfnet8_48khz_hr": {"sr": 48000, "win_len": 960},
 }
 
 
@@ -64,7 +69,7 @@ def make_stft_config(sr: int, win_len: int) -> STFTConfig:
 # -----------------------------------------------------------------------------
 
 def preprocessing(waveform: np.ndarray, cfg: STFTConfig) -> np.ndarray:
-    """ 
+    """
     waveform: 1D float32 numpy array at cfg.sr, mono, range ~[-1,1]
     Returns complex STFT as real/imag split: [B=1, T, F, 2] float32
     """
@@ -84,7 +89,7 @@ def preprocessing(waveform: np.ndarray, cfg: STFTConfig) -> np.ndarray:
 
 
 def postprocessing(spec_e: np.ndarray, cfg: STFTConfig) -> np.ndarray:
-    """ 
+    """
     spec_e: [1, T, F, 2] float32
     Returns waveform (1D float32, cfg.sr)
     """
@@ -184,14 +189,19 @@ def _load_model_and_cfg(model_name: str) -> tuple[Interpreter, STFTConfig]:
     return interpreter, cfg
 
 
-def enhance_file(in_path: Path, out_path: Path, model_name: str) -> None:
+def enhance_file(
+    interpreter: Interpreter,
+    cfg: STFTConfig,
+    in_path: Path,
+    out_path: Path,
+    model_name: str,
+) -> tuple[int, float, float, float]:
+    """Returns (num_frames, total_infer_time_s, avg_frame_ms, rtf)."""
     # Load audio
     audio, sr_in = sf.read(str(in_path), always_2d=False)
     audio = to_mono(audio)
     audio = audio.astype(np.float32, copy=False)
 
-    # Load model and its expected SR/STFT config
-    interpreter, cfg = _load_model_and_cfg(model_name)
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
 
@@ -207,12 +217,15 @@ def enhance_file(in_path: Path, out_path: Path, model_name: str) -> None:
 
     # Frame-by-frame inference
     outputs = []
-    for t in tqdm(range(num_frames), desc=f"{in_path.name}", unit="frm", leave=False):
+    total_infer_time_s = 0.0
+    for t in range(num_frames):
         frame = spec[:, t : t + 1]  # [B=1, T=1, F, 2]
         frame = np.ascontiguousarray(frame, dtype=np.float32)
 
         interpreter.set_tensor(input_details[0]["index"], frame)
+        t0 = time.perf_counter()
         interpreter.invoke()
+        total_infer_time_s += time.perf_counter() - t0
         y = interpreter.get_tensor(output_details[0]["index"])  # expected [1,1,F,2]
         outputs.append(np.ascontiguousarray(y, dtype=np.float32))
 
@@ -229,6 +242,15 @@ def enhance_file(in_path: Path, out_path: Path, model_name: str) -> None:
     # Save as 16-bit PCM WAV, mono, original sample rate
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(out_path), pcm16_safe(enhanced), sr_in, subtype="PCM_16")
+
+    avg_frame_ms = (total_infer_time_s / num_frames) * 1000.0 if num_frames > 0 else float("nan")
+    frame_duration_s = float(cfg.hop_size) / float(cfg.sr)
+    rtf = (
+        total_infer_time_s / (num_frames * frame_duration_s)
+        if num_frames > 0 and frame_duration_s > 0.0
+        else float("nan")
+    )
+    return num_frames, total_infer_time_s, avg_frame_ms, rtf
 
 
 def main():
@@ -257,6 +279,12 @@ def main():
             "sample-rate/STFT settings"
         ),
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel worker threads. Defaults to os.cpu_count().",
+    )
 
     args = parser.parse_args()
     print_banner(version=None)
@@ -276,20 +304,50 @@ def main():
         print(f"No .wav files found in {noisy_dir} (non-recursive).")
         sys.exit(0)
 
-    cfg = MODEL_CONFIG.get(model_name, None)
+    model_cfg = MODEL_CONFIG[model_name]
+    cfg = make_stft_config(sr=int(model_cfg["sr"]), win_len=int(model_cfg["win_len"]))
+
     print(f"Model: {model_name}")
-    if cfg is not None:
-        print(f"Model SR: {cfg['sr']} Hz | win_len: {cfg['win_len']} | hop: {cfg['win_len']//2}")
+    print(f"Model SR: {model_cfg['sr']} Hz | win_len: {model_cfg['win_len']} | hop: {model_cfg['win_len']//2}")
     print(f"Input : {noisy_dir}")
     print(f"Output: {enhanced_dir}")
-    print(f"Found {len(wavs)} file(s). Enhancing...\n")
 
-    for wav in wavs:
+    n_workers = args.workers or (os.cpu_count() or 1)
+    print(f"Found {len(wavs)} file(s). Enhancing with {n_workers} worker(s)...\n")
+
+    # Each thread gets its own independent TFLite interpreter (not thread-safe to share).
+    _tls = threading.local()
+
+    def _get_interpreter() -> Interpreter:
+        interp = getattr(_tls, "interp", None)
+        if interp is None:
+            interp, _ = _load_model_and_cfg(model_name)
+            _tls.interp = interp
+        return interp
+
+    def _process(wav: Path) -> tuple[Path, Path, tuple]:
+        interp = _get_interpreter()
         out_path = enhanced_dir / (wav.stem + f"_{model_name}.wav")
-        try:
-            enhance_file(wav, out_path, model_name)
-        except Exception as e:
-            print(f"[SKIP] {wav.name} due to error: {e}", file=sys.stderr)
+        result = enhance_file(interp, cfg, wav, out_path, model_name)
+        return wav, out_path, result
+
+    future_to_wav = {}
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        for wav in wavs:
+            future_to_wav[pool.submit(_process, wav)] = wav
+
+        for future in as_completed(future_to_wav):
+            wav = future_to_wav[future]
+            exc = future.exception()
+            if exc is not None:
+                print(f"[SKIP] {wav.name} due to error: {exc}", file=sys.stderr)
+                continue
+            wav, out_path, (num_frames, total_infer_time_s, avg_frame_ms, rtf) = future.result()
+            print(f"[OK] Wrote TFLite enhanced audio: {out_path}")
+            print(
+                f"[INFO] {wav.name}: frames={num_frames}, "
+                f"total={total_infer_time_s:.6f}s, avg_frame={avg_frame_ms:.4f}ms, rtf={rtf:.6f}"
+            )
 
     print("\nProcessing complete. Outputs saved in:", enhanced_dir)
 

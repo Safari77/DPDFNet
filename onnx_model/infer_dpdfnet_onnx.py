@@ -1,7 +1,9 @@
 import argparse
 import os
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +22,7 @@ MODEL_SAMPLE_RATE_BY_NAME = {
     "dpdfnet4": 16000,
     "dpdfnet8": 16000,
     "dpdfnet2_48khz_hr": 48000,
+    "dpdfnet8_48khz_hr": 48000,
 }
 
 
@@ -211,6 +214,12 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(MODEL_SAMPLE_RATE_BY_NAME.keys()),
         help="Model name. The ONNX model will be loaded from model_zoo/onnx/<model_name>.onnx",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel worker threads. Defaults to os.cpu_count().",
+    )
     return parser.parse_args()
 
 
@@ -273,43 +282,66 @@ def main() -> None:
         print(f"No .wav files found in {noisy_dir} (non-recursive).")
         sys.exit(0)
 
-    session = build_session(onnx_path)
-
-    win_len = infer_win_len(session, expected_sr)
-    init_state = load_initial_state_from_metadata(session)
+    # Use a temporary session just to read model metadata / win_len
+    tmp_session = build_session(onnx_path)
+    win_len = infer_win_len(tmp_session, expected_sr)
+    init_state = load_initial_state_from_metadata(tmp_session)
 
     print(f"[INFO] ONNX Runtime version: {ort.__version__}")
     print(f"[INFO] Host CPU cores (os.cpu_count): {os.cpu_count()}")
-    print(f"[INFO] Active providers: {session.get_providers()}")
+    print(f"[INFO] Active providers: {tmp_session.get_providers()}")
     print(f"[INFO] Model name: {model_name}")
     print(f"[INFO] Model SR: {expected_sr} Hz")
     print(f"[INFO] STFT win_len: {win_len}, hop: {win_len // 2}")
     print(f"[INFO] Initial state shape: {tuple(init_state.shape)}")
+    del tmp_session  # free before spawning per-thread sessions
+
+    n_workers = args.workers or (os.cpu_count() or 1)
     print(f"Input : {noisy_dir}")
     print(f"Output: {enhanced_dir}")
-    print(f"Found {len(wavs)} file(s). Enhancing...\n")
+    print(f"Found {len(wavs)} file(s). Enhancing with {n_workers} worker(s)...\n")
 
-    for wav in wavs:
+    # Each thread gets its own independent ORT session (no lock contention).
+    _tls = threading.local()
+
+    def _get_session() -> ort.InferenceSession:
+        s = getattr(_tls, "session", None)
+        if s is None:
+            s = build_session(onnx_path)
+            _tls.session = s
+        return s
+
+    def _process(wav: Path) -> tuple[Path, Path, tuple]:
+        session = _get_session()
         output_wav = enhanced_dir / (wav.stem + f"_{onnx_suffix}.wav")
-        try:
-            num_frames, state_shape, total_infer_time_s, avg_frame_ms, rtf = enhance_file_onnx(
-                session=session,
-                init_state=init_state,
-                expected_sr=expected_sr,
-                win_len=win_len,
-                input_wav=wav,
-                output_wav=output_wav,
-            )
-        except Exception as e:
-            print(f"[SKIP] {wav.name} due to error: {e}", file=sys.stderr)
-            continue
-
-        print(f"[OK] Wrote ONNX enhanced audio: {output_wav}")
-        print(f"[INFO] {wav.name}: frames={num_frames}, final_state_shape={state_shape}")
-        print(
-            f"[INFO] {wav.name}: total={total_infer_time_s:.6f}s, "
-            f"avg_frame={avg_frame_ms:.4f}ms, rtf={rtf:.6f}"
+        result = enhance_file_onnx(
+            session=session,
+            init_state=init_state,
+            expected_sr=expected_sr,
+            win_len=win_len,
+            input_wav=wav,
+            output_wav=output_wav,
         )
+        return wav, output_wav, result
+
+    future_to_wav = {}
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        for wav in wavs:
+            future_to_wav[pool.submit(_process, wav)] = wav
+
+        for future in as_completed(future_to_wav):
+            wav = future_to_wav[future]
+            exc = future.exception()
+            if exc is not None:
+                print(f"[SKIP] {wav.name} due to error: {exc}", file=sys.stderr)
+                continue
+            wav, output_wav, (num_frames, state_shape, total_infer_time_s, avg_frame_ms, rtf) = future.result()
+            print(f"[OK] Wrote ONNX enhanced audio: {output_wav}")
+            print(f"[INFO] {wav.name}: frames={num_frames}, final_state_shape={state_shape}")
+            print(
+                f"[INFO] {wav.name}: total={total_infer_time_s:.6f}s, "
+                f"avg_frame={avg_frame_ms:.4f}ms, rtf={rtf:.6f}"
+            )
 
     print("\nProcessing complete. Outputs saved in:", enhanced_dir)
 

@@ -59,6 +59,13 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         description="High-resolution 48 kHz DPDFNet-2 model.",
         onnx_filename="dpdfnet2_48khz_hr.onnx",
     ),
+    "dpdfnet8_48khz_hr": ModelInfo(
+        name="dpdfnet8_48khz_hr",
+        sample_rate=48000,
+        frame_ms=20.0,
+        description="High-resolution 48 kHz DPDFNet-8 model.",
+        onnx_filename="dpdfnet8_48khz_hr.onnx",
+    ),
 }
 
 DEFAULT_MODEL = "dpdfnet2"

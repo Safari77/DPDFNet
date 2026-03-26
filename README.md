@@ -36,8 +36,11 @@ pip install dpdfnet
 # Enhance one file
 dpdfnet enhance noisy.wav enhanced.wav --model dpdfnet4
 
-# Enhance a directory
+# Enhance a directory (uses all CPU cores by default)
 dpdfnet enhance-dir ./noisy_wavs ./enhanced_wavs --model dpdfnet2
+
+# Enhance a directory with a fixed worker count
+dpdfnet enhance-dir ./noisy_wavs ./enhanced_wavs --model dpdfnet2 --workers 4
 
 # Download models
 dpdfnet download
@@ -179,7 +182,8 @@ Put one or more `*.wav` files in `./noisy_wavs`, then choose one:
 python -m tflite_model.infer_dpdfnet_tflite \
 	--noisy_dir ./noisy_wavs \
 	--enhanced_dir ./enhanced_wavs \
-	--model_name dpdfnet4
+	--model_name dpdfnet4 \
+	--workers 5
 ```
 
 #### Option B: `ONNX`
@@ -188,7 +192,8 @@ python -m tflite_model.infer_dpdfnet_tflite \
 python -m onnx_model.infer_dpdfnet_onnx \
   	--noisy_dir ./noisy_wavs \
 	--enhanced_dir ./enhanced_wavs \
-	--model_name dpdfnet4
+	--model_name dpdfnet4 \
+	--workers 5
 ```
 
 Enhanced files are written as:
@@ -229,16 +234,17 @@ To change model, edit `MODEL_NAME` near the top of `real_time_demo.py`.
 
 | Model | Params [M] | MACs [G] | TFLite Size [MB] | ONNX Size [MB] | Intended Use |
 | --- | :---: | :---: | :---: | :---: | --- |
-| baseline | 2.31 | 0.36 | 8.5 | 8.5 | Fastest / lowest resource usage |
-| dpdfnet2 | 2.49 | 1.35 | 10.7 | 9.9 | Real-time / embedded devices |
-| dpdfnet4 | 2.84 | 2.36 | 12.9 | 11.2 | Balanced performance |
-| dpdfnet8 | 3.54 | 4.37 | 17.2 | 14.1 | Best enhancement quality |
+| baseline | 2.31 | 0.36 | 8.5 | 8.3 | Fastest / lowest resource usage |
+| dpdfnet2 | 2.49 | 1.35 | 10.7 | 9.7 | Real-time / embedded devices |
+| dpdfnet4 | 2.84 | 2.36 | 12.9 | 11.1 | Balanced performance |
+| dpdfnet8 | 3.54 | 4.37 | 17.2 | 13.9 | Best enhancement quality |
 
-### 48 kHz model
+### 48 kHz models
 
 | Model | Params [M] | MACs [G] | TFLite Size [MB] | ONNX Size [MB] | Intended Use |
 | --- | :---: | :---: | :---: | :---: | --- |
-| dpdfnet2_48khz_hr | 2.58 | 2.42 | 11.6 | 10.3 | High-resolution 48 kHz audio |
+| dpdfnet2_48khz_hr | 2.58 | 2.42 | 11.6 | 10.0 | High-resolution 48 kHz audio |
+| dpdfnet8_48khz_hr | 3.63 | 7.17 | 18.7 | 14.2 | Best quality high-resolution 48 kHz audio |
 
 
 ## Troubleshooting / FAQ
