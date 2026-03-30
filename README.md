@@ -37,8 +37,8 @@
 
 | Model | Params [M] | MACs [G] | TFLite Size [MB] | ONNX Size [MB] | Intended Use |
 | --- | :---: | :---: | :---: | :---: | --- |
-| dpdfnet2_48khz_hr | 2.58 | 2.42 | 11.6 | 10.0 | High-resolution 48 kHz audio |
-| dpdfnet8_48khz_hr | 3.63 | 7.17 | 18.7 | 14.2 | Best quality high-resolution 48 kHz audio |
+| dpdfnet2_48khz_hr | 2.58 | 2.42 | 11.6 | 10.0 | Balanced performance |
+| dpdfnet8_48khz_hr | 3.63 | 7.17 | 18.7 | 14.2 | Best enhancement quality |
 
 ## Install the PyPI Package
 
